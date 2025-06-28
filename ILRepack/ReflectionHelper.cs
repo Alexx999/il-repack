@@ -31,7 +31,12 @@ namespace ILRepacking
 
         internal MethodDefinition FindMethodDefinitionInType(TypeDefinition type, MethodReference method)
         {
-            return type.Methods.FirstOrDefault(
+            return FindMethodDefinitionInType(type.Methods, method);
+        }
+
+        internal MethodDefinition FindMethodDefinitionInType(IEnumerable<MethodDefinition> methods, MethodReference method)
+        {
+            return methods.FirstOrDefault(
                     x => x.Name == method.Name &&
                          AreSame(x.Parameters, method.Parameters) &&
                          AreSame(x.ReturnType, method.ReturnType) &&

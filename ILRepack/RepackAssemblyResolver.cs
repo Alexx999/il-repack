@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using Mono.Cecil;
 
 namespace ILRepacking
@@ -48,6 +49,11 @@ namespace ILRepacking
             "ucrtbase",
             "vcruntime140_cor3",
             "wpfgfx_cor3",
+            "clrgcexp",
+            "sos",
+            "sni",
+            "e_sqlite3",
+            "libuv",
         };
 
         private static readonly HashSet<string> frameworkNames = new(StringComparer.OrdinalIgnoreCase)
@@ -287,10 +293,7 @@ namespace ILRepacking
 
         private void ReadRuntimes(IEnumerable<string> allRuntimes)
         {
-            foreach (var directory in allRuntimes)
-            {
-                ReadRuntime(directory);
-            }
+            Parallel.ForEach(allRuntimes, ReadRuntime);
         }
 
         private void ReadRuntime(string directory)
@@ -302,7 +305,8 @@ namespace ILRepacking
                 var fileName = Path.GetFileNameWithoutExtension(filePath);
                 if (ignoreRuntimeDlls.Contains(fileName) ||
                     fileName.StartsWith("api-ms-", StringComparison.OrdinalIgnoreCase) ||
-                    fileName.StartsWith("mscordaccore_", StringComparison.OrdinalIgnoreCase))
+                    fileName.StartsWith("mscordaccore_", StringComparison.OrdinalIgnoreCase) ||
+                    fileName.StartsWith("sos_", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -311,9 +315,12 @@ namespace ILRepacking
                 {
                     var assemblyName = AssemblyName.GetAssemblyName(filePath);
                     string fullName = assemblyName.FullName;
-                    if (!assemblyPathsByFullAssemblyName.ContainsKey(fullName))
+                    lock(assemblyPathsByFullAssemblyName)
                     {
-                        assemblyPathsByFullAssemblyName[fullName] = filePath;
+                        if (!assemblyPathsByFullAssemblyName.ContainsKey(fullName))
+                        {
+                            assemblyPathsByFullAssemblyName[fullName] = filePath;
+                        }
                     }
                 }
                 catch

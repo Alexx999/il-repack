@@ -30,6 +30,7 @@ namespace ILRepacking
         private string targetAssemblyPublicKeyBlobString;
         private readonly HashSet<GenericParameter> fixedGenericParameters = new HashSet<GenericParameter>();
         private bool renameIkvmAttributeReference;
+        private readonly Dictionary<TypeDefinition, TypeCacheEntry> _typeCache = new Dictionary<TypeDefinition, TypeCacheEntry>();
 
         public ReferenceFixator(ILogger logger, IRepackContext repackContext)
         {
@@ -71,8 +72,8 @@ namespace ILRepacking
             field.DeclaringType = Fix(field.DeclaringType);
             if (field.DeclaringType.IsDefinition && !field.IsDefinition)
             {
-                FieldDefinition def = ((TypeDefinition)field.DeclaringType).Fields.FirstOrDefault(x => x.Name == field.Name);
-                if (def == null)
+                var cacheEntry = GetCacheEntry((TypeDefinition)field.DeclaringType);
+                if (!cacheEntry.TryGetField(field.Name, out var def))
                     throw new NullReferenceException("Field \"" + field + "\" not found in type \"" + field.DeclaringType + "\".");
                 return def;
             }
@@ -527,7 +528,8 @@ namespace ILRepacking
             // if declaring type is in our new merged module, return the definition
             if (declaringType.IsDefinition && !method.IsDefinition)
             {
-                MethodDefinition def = new ReflectionHelper(_repackContext).FindMethodDefinitionInType((TypeDefinition)declaringType, method);
+                var cacheEntry = GetCacheEntry((TypeDefinition)declaringType);
+                MethodDefinition def = new ReflectionHelper(_repackContext).FindMethodDefinitionInType(cacheEntry.GetMethods(method.Name), method);
                 if (def != null)
                     return def;
             }
@@ -690,6 +692,47 @@ Indicates a likely invalid set of assemblies, consider one of the following:
             MethodDefinition @base = MethodMatcher.MapVirtualMethodToDeepestBase(meth);
             if (@base != null && @base.IsVirtual)
                 Fix(@base, meth);
+        }
+
+        private TypeCacheEntry GetCacheEntry(TypeDefinition def)
+        {
+            if (_typeCache.TryGetValue(def, out var cache))
+            {
+                return cache;
+            }
+
+            cache = new TypeCacheEntry(def);
+            _typeCache.Add(def, cache);
+            return cache;
+        }
+
+        class TypeCacheEntry
+        {
+            public TypeDefinition TypeDefinition { get; }
+            private readonly Dictionary<string, FieldDefinition> _fields = new();
+            private readonly Dictionary<string, MethodDefinition[]> _methods = new();
+
+            public TypeCacheEntry(TypeDefinition typeDefinition)
+            {
+                TypeDefinition = typeDefinition;
+                _methods = typeDefinition.Methods.GroupBy(m => m.Name)
+                    .ToDictionary(g => g.Key, g => g.ToArray());
+                _fields = typeDefinition.Fields.ToDictionary(f => f.Name, f => f);
+            }
+
+            internal bool TryGetField(string name, out FieldDefinition def)
+            {
+                return _fields.TryGetValue(name, out def);
+            }
+
+            internal MethodDefinition[] GetMethods(string name)
+            {
+                if (_methods.TryGetValue(name, out var arr))
+                {
+                    return arr;
+                }
+                return Array.Empty<MethodDefinition>();
+            }
         }
     }
 }
